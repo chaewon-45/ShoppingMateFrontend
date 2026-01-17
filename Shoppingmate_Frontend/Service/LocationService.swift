@@ -32,6 +32,7 @@ final class LocationService: NSObject, ObservableObject {
 
         // super.init(): NSObject 초기화(상위 클래스 초기화) 반드시 호출
         super.init()
+        
 
         // delegate 연결: 위치 업데이트/권한 변경 같은 이벤트를 이 클래스가 받도록 설정
         locationManager.delegate = self
@@ -40,67 +41,87 @@ final class LocationService: NSObject, ObservableObject {
         // HundredMeters: 대략 100m 단위(가격표/매장 단위 기록이면 보통 충분)
         locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
     }
+    
+    func requestCurrentLocation() {
+        switch authorizationStatus {
+        case .authorizedWhenInUse, .authorizedAlways:
+            print("📍 [BUTTON] 위치 요청 실행")
+            locationManager.requestLocation()
 
-    // MARK: - Permission (권한 요청 관련)
+        case .notDetermined:
+            print("🔑 [BUTTON] 위치 권한 요청")
+            locationManager.requestWhenInUseAuthorization()
 
-    // requestPermission(): "앱 사용 중 위치 권한" 팝업을 띄우는 요청
-    // (Info.plist에 NSLocationWhenInUseUsageDescription 없으면 앱 크래시)
-    func requestPermission() {
-        locationManager.requestWhenInUseAuthorization()
-    }
-
-    // MARK: - Location (위치 업데이트 관련)
-
-    // start(): 위치 업데이트를 시작
-    // (위치가 갱신되면 delegate의 didUpdateLocations가 호출됨)
-    func start() {
-        locationManager.startUpdatingLocation()
-    }
-
-    // stop(): 위치 업데이트를 중지(배터리 절약)
-    // "한 번만 좌표 필요"할 때 꼭 stop 해주는 게 좋아
-    func stop() {
-        locationManager.stopUpdatingLocation()
+        default:
+            print("❌ 위치 권한 거부됨")
+        }
     }
 }
 
 // extension으로 delegate 구현을 분리하면 코드가 깔끔해짐
 extension LocationService: CLLocationManagerDelegate {
-
+    
     // didUpdateLocations: 위치가 업데이트될 때마다 시스템이 호출해주는 콜백(핵심)
     func locationManager(
         _ manager: CLLocationManager,
         didUpdateLocations locations: [CLLocation]
     ) {
-        // locations: 지금까지 들어온 위치 배열(마지막이 가장 최신)
-        // last를 꺼내서 currentLocation에 저장
-        currentLocation = locations.last
-
-        // 위치가 "한 번만" 필요하면 여기서 바로 stop 해도 됨
-        // 계속 추적이 필요하면 이 줄은 지우고 필요 시점에 stop() 호출
-        manager.stopUpdatingLocation()
+        guard let loc = locations.last else { return }
+        
+        currentLocation = loc
+        print("📍 위도:", loc.coordinate.latitude)
+        print("📍 경도:", loc.coordinate.longitude)
+        
+        //manager.stopUpdatingLocation()
     }
-
+    
+    func locationManager(
+        _ manager: CLLocationManager,
+        didFailWithError error: Error
+    ) {
+        print("❌ 위치 요청 실패:", error.localizedDescription)
+    }
+    
     // locationManagerDidChangeAuthorization: 권한 상태가 바뀔 때 호출
-    // (허용/거부/미결정 → 허용 같은 변화)
+    // (허용/거부/미결정 → 허용 감지)
     func locationManagerDidChangeAuthorization(
         _ manager: CLLocationManager
     ) {
         // 최신 권한 상태를 @Published에 반영해서
         // SwiftUI가 "권한 바뀜"을 감지하도록 함
         authorizationStatus = manager.authorizationStatus
+        print("🔑 권한 상태 변경:", authorizationStatus)
+        
+        if authorizationStatus == .authorizedWhenInUse ||
+            authorizationStatus == .authorizedAlways {
+            print("📍 [AUTH] 권한 허용 → 자동 위치 요청")
+            manager.requestLocation()
+        }
     }
+    
+    func requestOneTimeLocation() {
+        if authorizationStatus == .authorizedWhenInUse ||
+           authorizationStatus == .authorizedAlways {
+            print("📍 위치 요청 실행")
+            locationManager.requestLocation()
+        } else if authorizationStatus == .notDetermined {
+            print("📍 권한 요청")
+            locationManager.requestWhenInUseAuthorization()
+        } else {
+            print("❌ 위치 권한 거부됨")
+        }
+    }
+}
 
     // (선택) 에러 발생 시 호출되는 콜백도 구현 가능
     // 위치 서비스를 못 쓰는 상황(권한 거부, 시스템 오류 등)에서 유용
-    func locationManager(
-        _ manager: CLLocationManager,
-        didFailWithError error: Error
-    ) {
-        // 에러 로그 출력(디버깅용)
-        print("Location error:", error.localizedDescription)
-    }
-}
+//    func locationManager(
+//        _ manager: CLLocationManager,
+//        didFailWithError error: Error
+//    ) {
+//        // 에러 로그 출력(디버깅용)
+//        print("Location error:", error.localizedDescription)
+//    }
 
 //#Preview {
 //    LocationService()
